@@ -1,25 +1,38 @@
 --- a/src/backends/libinput/device.cpp
 +++ b/src/backends/libinput/device.cpp
-@@ -273,6 +273,18 @@
+@@ -273,6 +273,31 @@
  
  namespace
  {
 +void enableThreeFingerDrag(libinput_device *device)
 +{
-+#ifdef LIBINPUT_CONFIG_3FG_DRAG_ENABLED_3FG
 +    const int fingerCount = libinput_device_config_3fg_drag_get_finger_count(device);
-+    if (fingerCount >= 3) {
-+        libinput_device_config_3fg_drag_set_enabled(device, LIBINPUT_CONFIG_3FG_DRAG_ENABLED_3FG);
++    if (fingerCount < 3) {
++        qCWarning(KWIN_LIBINPUT) << "3-finger drag not available for" << libinput_device_get_name(device) << "fingerCount=" << fingerCount;
++        return;
 +    }
-+#else
-+    Q_UNUSED(device);
-+#endif
++
++    const auto status = libinput_device_config_3fg_drag_set_enabled(device, LIBINPUT_CONFIG_3FG_DRAG_ENABLED_3FG);
++    const auto enabled = libinput_device_config_3fg_drag_get_enabled(device);
++    const auto defaultEnabled = libinput_device_config_3fg_drag_get_default_enabled(device);
++
++    if (status == LIBINPUT_CONFIG_STATUS_SUCCESS && enabled == LIBINPUT_CONFIG_3FG_DRAG_ENABLED_3FG) {
++        qCWarning(KWIN_LIBINPUT) << "3-finger drag enabled for" << libinput_device_get_name(device)
++                                 << "fingerCount=" << fingerCount
++                                 << "defaultState=" << defaultEnabled;
++    } else {
++        qCWarning(KWIN_LIBINPUT) << "Failed to enable 3-finger drag for" << libinput_device_get_name(device)
++                                 << "status=" << status
++                                 << "enabledState=" << enabled
++                                 << "defaultState=" << defaultEnabled
++                                 << "fingerCount=" << fingerCount;
++    }
 +}
 +
  QMatrix4x4 getMatrix(libinput_device *device, std::function<int(libinput_device *, float[6])> getter)
  {
      float matrix[6];
-@@ -476,6 +488,9 @@
+@@ -476,6 +501,9 @@
                                                   QStringLiteral("org.kde.KWin.InputDevice"),
                                                   this,
                                                   QDBusConnection::ExportAllProperties);
@@ -29,6 +42,16 @@
  }
  
  Device::~Device()
+@@ -517,6 +545,9 @@
+     };
+ 
+     m_loading = false;
++
++    // Re-apply 3-finger drag after reconfigure/loadConfiguration.
++    enableThreeFingerDrag(m_device);
+ }
+ 
+ void Device::setPointerAcceleration(qreal acceleration)
 --- a/src/virtualdesktops.cpp
 +++ b/src/virtualdesktops.cpp
 @@ -838,22 +838,8 @@
@@ -54,3 +77,77 @@
      input()->registerTouchscreenSwipeShortcut(SwipeDirection::Left, 3, m_swipeGestureReleasedX.get(), left);
      input()->registerTouchscreenSwipeShortcut(SwipeDirection::Right, 3, m_swipeGestureReleasedX.get(), right);
  
+--- a/src/input.cpp
++++ b/src/input.cpp
+@@ -1094,7 +1094,7 @@
+     bool swipeGestureBegin(PointerSwipeGestureBeginEvent *event) override
+     {
+         m_touchpadGestureFingerCount = event->fingerCount;
+-        if (m_touchpadGestureFingerCount >= 3) {
++        if (m_touchpadGestureFingerCount >= 4) {
+             input()->shortcuts()->processSwipeStart(DeviceType::Touchpad, event->fingerCount);
+             return true;
+         } else {
+@@ -1103,7 +1103,7 @@
+     }
+     bool swipeGestureUpdate(PointerSwipeGestureUpdateEvent *event) override
+     {
+-        if (m_touchpadGestureFingerCount >= 3) {
++        if (m_touchpadGestureFingerCount >= 4) {
+             input()->shortcuts()->processSwipeUpdate(DeviceType::Touchpad, event->delta);
+             return true;
+         } else {
+@@ -1112,7 +1112,7 @@
+     }
+     bool swipeGestureCancelled(PointerSwipeGestureCancelEvent *event) override
+     {
+-        if (m_touchpadGestureFingerCount >= 3) {
++        if (m_touchpadGestureFingerCount >= 4) {
+             input()->shortcuts()->processSwipeCancel(DeviceType::Touchpad);
+             return true;
+         } else {
+@@ -1121,7 +1121,7 @@
+     }
+     bool swipeGestureEnd(PointerSwipeGestureEndEvent *event) override
+     {
+-        if (m_touchpadGestureFingerCount >= 3) {
++        if (m_touchpadGestureFingerCount >= 4) {
+             input()->shortcuts()->processSwipeEnd(DeviceType::Touchpad);
+             return true;
+         } else {
+@@ -1131,7 +1131,7 @@
+     bool pinchGestureBegin(PointerPinchGestureBeginEvent *event) override
+     {
+         m_touchpadGestureFingerCount = event->fingerCount;
+-        if (m_touchpadGestureFingerCount >= 3) {
++        if (m_touchpadGestureFingerCount >= 4) {
+             input()->shortcuts()->processPinchStart(event->fingerCount);
+             return true;
+         } else {
+@@ -1140,7 +1140,7 @@
+     }
+     bool pinchGestureUpdate(PointerPinchGestureUpdateEvent *event) override
+     {
+-        if (m_touchpadGestureFingerCount >= 3) {
++        if (m_touchpadGestureFingerCount >= 4) {
+             input()->shortcuts()->processPinchUpdate(event->scale, event->angleDelta, event->delta);
+             return true;
+         } else {
+@@ -1149,7 +1149,7 @@
+     }
+     bool pinchGestureEnd(PointerPinchGestureEndEvent *event) override
+     {
+-        if (m_touchpadGestureFingerCount >= 3) {
++        if (m_touchpadGestureFingerCount >= 4) {
+             input()->shortcuts()->processPinchEnd();
+             return true;
+         } else {
+@@ -1158,7 +1158,7 @@
+     }
+     bool pinchGestureCancelled(PointerPinchGestureCancelEvent *event) override
+     {
+-        if (m_touchpadGestureFingerCount >= 3) {
++        if (m_touchpadGestureFingerCount >= 4) {
+             input()->shortcuts()->processPinchCancel();
+             return true;
+         } else {

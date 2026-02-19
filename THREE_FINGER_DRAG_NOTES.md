@@ -90,18 +90,48 @@ KWin still explicitly registered 3-finger touchpad swipes for virtual desktop sw
 
 This prevents KWin’s own touchpad 3-finger desktop-switch gesture bindings from conflicting with 3-finger drag.
 
+### G) Additional shortcut path disabled (global gestures)
+Another touchpad gesture path in `src/input.cpp` still accepted `>= 3` fingers for touchpad swipe/pinch shortcut processing.
+- Changed touchpad shortcut gesture threshold from `>= 3` to `>= 4` in:
+  - `swipeGestureBegin/Update/Cancelled/End`
+  - `pinchGestureBegin/Update/Cancelled/End`
+
+This prevents global touchpad 3-finger shortcuts from competing with drag.
+
+### H) Reconfigure persistence fix
+User environment had login scripts that called `qdbus6 org.kde.KWin /KWin reconfigure`.
+To prevent reconfigure from undoing drag state:
+- Added call to `enableThreeFingerDrag(m_device)` at end of `Device::loadConfiguration()`.
+
+### I) Critical bug found in earlier patch (and fixed)
+Earlier patch versions wrapped 3fg code with:
+- `#ifdef LIBINPUT_CONFIG_3FG_DRAG_ENABLED_3FG`
+
+This is invalid because `LIBINPUT_CONFIG_3FG_DRAG_ENABLED_3FG` is an enum value, not a preprocessor macro.
+Effect:
+- 3fg code got compiled out silently.
+
+Fix:
+- Removed that `#ifdef`/`#else`/`#endif` guard.
+- 3fg code now compiles and executes against libinput 1.27+ headers.
+
 ## Final Patch Contents
 `0001-libinput-enable-3fg-drag-always.patch` now contains two file hunks:
 1. `src/backends/libinput/device.cpp`
 - enable 3fg drag on libinput devices (3FG mode)
+- add warning-level logging for success/failure states
+- re-apply in `loadConfiguration()`
 
 2. `src/virtualdesktops.cpp`
 - remove touchpad 3-finger desktop-swipe registrations
 - keep touchpad 4-finger + touchscreen gestures
 
+3. `src/input.cpp`
+- move touchpad shortcut gesture threshold from 3 to 4 fingers
+
 ## Package Metadata Changes
 `PKGBUILD` was updated multiple times during iteration. Final effective state:
-- `pkgrel` incremented to `11`
+- `pkgrel` incremented to `14`
 - `source` includes `0001-libinput-enable-3fg-drag-always.patch`
 - `sha256sums` includes current patch checksum
 - `prepare()` applies patch and no longer includes old `sed` magic fix
@@ -113,6 +143,11 @@ Repeatedly validated with:
 Successful final `prepare()` output showed:
 - patch applied to `src/backends/libinput/device.cpp`
 - patch applied to `src/virtualdesktops.cpp`
+- patch applied to `src/input.cpp`
+
+## Local Environment Finding (User-Specific)
+The login environment had multiple legacy autostart entries/scripts for `kwin-wayland-touchpad-refresh` that repeatedly invoked `KWin reconfigure`.
+These were disabled/moved out of autostart paths during debugging to avoid overriding behavior while testing.
 
 ## Build/Install Command Used
 For local rebuild with multicore and skipped PGP checks:
